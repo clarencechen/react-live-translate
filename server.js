@@ -4,13 +4,17 @@ const WebSocket = require("ws");
 const path = require("path");
 const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
 const dotenv = require("dotenv");
+const { default: Anthropic } = require("@anthropic-ai/sdk");
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+const anthropic = new Anthropic({apiKey: process.env.ANTHROPIC_API_KEY});
 const deepgramClient = createClient(process.env.DEEPGRAM_API_KEY);
+
+let llm_history = [];
 let keepAlive;
 
 const setupDeepgram = (ws) => {
@@ -103,6 +107,53 @@ wss.on("connection", (ws) => {
     deepgram = null;
   });
 });
+
+app.use(express.json());
+app.post("/api/translate", async (req, res, next) => {
+  try {
+    const user_prompt = {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": `${req.body.text} --> ${req.body.language}`
+        }
+      ]
+    }
+
+    console.log(`anthropic: translating ${user_prompt.content[0].text}`);
+    const stream = anthropic.messages.stream({
+      model: "claude-3-opus-20240229",
+      max_tokens: 2000,
+      temperature: 0.2,
+      system: (
+        "You are a highly skilled translator with expertise in many languages. "
+        + "Your task is to identify the language of the text I provide and accurately "
+        + "translate it into the specified target language while preserving the meaning, "
+        + "tone, and nuance of the original text. Please maintain proper grammar, spelling, "
+        + "and punctuation in the translated version. Please only output the translated text "
+        + "without any extra annotations, metadata, or preambles."
+      ),
+      messages: [...llm_history, user_prompt],
+    });
+
+    const message = await stream.finalMessage();
+    console.log(`anthropic: translated ${user_prompt.content[0]?.text}`);
+    res.send(message.content[0]?.text);
+
+    llm_history = [...llm_history, user_prompt, {
+      "role": message.role,
+      "content": message.content,
+    }];
+
+    if (llm_history.length > 128) {
+      llm_history = llm_history.slice(-128);
+    }
+
+  } catch (error) {
+    next(error);
+  }
+})
 
 app.use(express.static(path.join(__dirname, "build")));
 app.use(express.static("public"));
