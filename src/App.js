@@ -113,11 +113,19 @@ function App() {
   }
 
   useEffect(async () => {
-    const socket = new WebSocket("ws://localhost:3000");
+    const socket = new WebSocket("ws://localhost:3000/api/deepgram");
 
     socket.addEventListener("open", async () => {
       console.log("client: connected to server");
       socketRef.current = socket;
+      try {
+        micRef.current = await getMicrophone();
+        await openMicrophone(micRef.current, socketRef.current);
+        micRef.current.pause();
+        setMicDisabled(false);
+      } catch (error) {
+        console.error("error opening microphone:", error);
+      }
     });
 
     socket.addEventListener("message", async (event) => {
@@ -145,16 +153,11 @@ function App() {
 
     socket.addEventListener("close", () => {
       console.log("client: disconnected from server");
+      micRef.current.stop();
+      setRecordingState(false);
+      micRef.current = null;
+      setMicDisabled(true);
     });
-
-    try {
-      micRef.current = await getMicrophone();
-      await openMicrophone(micRef.current, socketRef.current);
-      micRef.current.pause();
-      setMicDisabled(false);
-    } catch (error) {
-      console.error("error opening microphone:", error);
-    }
 
   }, []);
 

@@ -1,0 +1,5 @@
+anthropic
+deepgram-sdk
+dotenv
+fastapi
+uvicorn
